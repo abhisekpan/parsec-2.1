@@ -34,6 +34,14 @@ using namespace tbb;
 
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
+//Abhi===
+#include <sched.h>
+#include <stdbool.h>
+#define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
+#define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
+pthread_barrier_t warmup_barrier;
+bool warmup_done = false;
+//=======
 #endif
 
 using namespace std;
@@ -728,7 +736,12 @@ float pspeedy(Points *points, float z, long *kcenter, int pid, pthread_barrier_t
     points->p[k].cost = distance * points->p[k].weight;
     points->p[k].assign=0;
   }
-
+  //Abhi=== inserting this barrier - bugfix
+  //http://parsec.cs.princeton.edu/download/2.1/bugfixes/streamcluster_barrier.patch
+#ifdef ENABLE_THREADS
+  pthread_barrier_wait(barrier);
+#endif
+  //===
   if( pid==0 )   {
     *kcenter = 1;
     costs = (double*)malloc(sizeof(double)*nproc);
@@ -1686,6 +1699,38 @@ struct pkmedian_arg_t
 void* localSearchSub(void* arg_) {
 
   pkmedian_arg_t* arg= (pkmedian_arg_t*)arg_;
+  //Abhi======
+  int tid = arg->pid;
+  //binding  the threads to core is complete
+#ifdef ENABLE_PARSEC_HOOKS
+  bool set_range = false;
+  int cpu_base = 0, cpu_num = 0;
+  char *str_num = getenv(__PARSEC_CPU_NUM);
+  char *str_base = getenv(__PARSEC_CPU_BASE);
+  if ((str_num != NULL)&& (str_base != NULL)) {
+    cpu_num = atoi(str_num);
+    cpu_base = atoi(str_base);
+    set_range = true;
+  }
+  if(set_range) {
+    int core_id = cpu_base + (tid % cpu_num);
+    __parsec_binding_done((unsigned int)core_id);
+  }
+  //barrier to indicate end of warmup
+  if (!warmup_done) {
+    int wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (wait_over == PTHREAD_BARRIER_SERIAL_THREAD) {
+      warmup_done = true;
+      __parsec_warmup_over();
+    } else {
+      if (wait_over != 0) {
+	printf ("Error in barrier wait. Exiting...\n");
+	exit(1);
+      }
+    }
+  }
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   pkmedian(arg->points,arg->kmin,arg->kmax,arg->kfinal,arg->pid,arg->barrier);
 
   return NULL;
@@ -1707,9 +1752,19 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
     pthread_barrier_t barrier;
     pthread_t* threads = new pthread_t[nproc];
     pkmedian_arg_t* arg = new pkmedian_arg_t[nproc];
-
+    //Abhi === attributes
+    pthread_attr_t *attr = new pthread_attr_t[nproc];
+    cpu_set_t *mask = new cpu_set_t[nproc];
+    //===
 #ifdef ENABLE_THREADS
     pthread_barrier_init(&barrier,NULL,nproc);
+    if (!warmup_done) {
+      int ret = pthread_barrier_init(&warmup_barrier, NULL, nproc);
+      if (ret != 0) {
+	printf("Failed to initialize warmup barrier. Exiting...\n");
+	exit(1);
+      }
+    }
 #endif
     for( int i = 0; i < nproc; i++ ) {
       arg[i].points = points;
@@ -1720,7 +1775,33 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
 
       arg[i].barrier = &barrier;
 #ifdef ENABLE_THREADS
-      pthread_create(threads+i,NULL,localSearchSub,(void*)&arg[i]);
+      //Abhi === bind the threads
+#ifdef ENABLE_PARSEC_HOOKS
+      bool set_range = false;
+      int cpu_base = 0, cpu_num = 0;
+      char *str_num = getenv(__PARSEC_CPU_NUM);
+      char *str_base = getenv(__PARSEC_CPU_BASE);
+      if ((str_num != NULL)&& (str_base != NULL)) {
+	cpu_num = atoi(str_num);
+	cpu_base = atoi(str_base);
+	set_range = true;
+      }
+      //set affinity
+      if(set_range) {
+	CPU_ZERO(&mask[i]);
+	int core_id = cpu_base + (i % cpu_num);
+	CPU_SET(core_id, &mask[i]);
+	if (!pthread_attr_setaffinity_np(&attr[i], sizeof(mask[i]), &mask[i])) {
+	  fprintf(stderr, "thread %d bound to core %d\n", i, core_id);
+	} else {
+	  fprintf(stderr, " Error: failure in setting affinity for thread %d\n", i);
+	  exit(1);
+	}
+      }
+#endif
+      //pthread_create(threads+i,NULL,localSearchSub,(void*)&arg[i]);
+      pthread_create(threads+i,&attr[i],localSearchSub,(void*)&arg[i]);
+      //===
 #else
       localSearchSub(&arg[0]);
 #endif
@@ -1734,6 +1815,8 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
 
     delete[] threads;
     delete[] arg;
+    delete[] attr; //Abhi
+    delete[] mask; //Abhi
 #ifdef ENABLE_THREADS
     pthread_barrier_destroy(&barrier);
 #endif

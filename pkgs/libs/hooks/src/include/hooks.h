@@ -142,9 +142,15 @@ void __parsec_roi_begin();
  */
 void __parsec_roi_end();
 
+//Abhi ===
+void __parsec_warmup_over();
+void __parsec_local_start();
+void __parsec_local_end();
+void __parsec_binding_done(unsigned int c);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 
 #endif //_PARSEC_HOOKS_HOOKS_H
 

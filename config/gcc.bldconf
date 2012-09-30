@@ -27,9 +27,9 @@ case "${OSTYPE}" in
   export SFW_HOME="/usr/sfw"
 
   # CC_HOME is installation root of the C compiler
-  export CC_HOME="/n/fs/parsec/local/gcc-4.4.0-static"
+  export CC_HOME="/usr"
   # BINUTIL_HOME is installation root of the GNU binutils
-  export BINUTIL_HOME="/usr/local"
+  export BINUTIL_HOME="/usr"
   # GNUTOOL_HOME is installation root of the GNU tools
   export GNUTOOL_HOME="${SFW_HOME}"
   # BINARY_PREFIX is the string which is used as prefix for the GNU binaries
@@ -39,9 +39,9 @@ case "${OSTYPE}" in
   # Linux + default case
 
   # CC_HOME is installation root of the C compiler
-  export CC_HOME="/n/fs/parsec/local/gcc-4.4.0-static"
+  export CC_HOME="/usr"
   # BINUTIL_HOME is installation root of the GNU binutils
-  export BINUTIL_HOME="/usr/local"
+  export BINUTIL_HOME="/usr"
   # GNUTOOL_HOME is installation root of the GNU tools
   export GNUTOOL_HOME="/usr"
   # BINARY_PREFIX is the string which is used as prefix for the GNU binaries
@@ -69,9 +69,9 @@ export MAKE="${GNUTOOL_HOME}/bin/${BINARY_PREFIX}make"
 # Flags for increased portability of binaries
 PORTABILITY_FLAGS="-static-libgcc -Wl,--hash-style=both,--as-needed"
 
-# Arguments to use
-export CFLAGS="-O3 -funroll-loops -fprefetch-loop-arrays ${PORTABILITY_FLAGS}"
-export CXXFLAGS="-O3 -funroll-loops -fprefetch-loop-arrays -fpermissive -fno-exceptions ${PORTABILITY_FLAGS}"
+# Arguments to use (Static added by Abhi)
+export CFLAGS="-O3 -funroll-loops -fprefetch-loop-arrays ${PORTABILITY_FLAGS} -static"
+export CXXFLAGS="-O3 -funroll-loops -fprefetch-loop-arrays -fpermissive -fno-exceptions ${PORTABILITY_FLAGS} -static"
 export CPPFLAGS=""
 export CXXCPPFLAGS=""
 export LDFLAGS="-L${CC_HOME}/lib64 -L${CC_HOME}/lib"

@@ -50,12 +50,14 @@ define(CREATE_WITH_ARG, `
         for ( _M4_i = 0; _M4_i < MAX_THREADS; _M4_i++) {
             if ( _M4_threadsTable[_M4_i] == -1)    break;
         }
-        pthread_create(&_M4_threadsTable[_M4_i],NULL,(void *(*)(void *))$1,(void *)$2);
+        //pthread_create(&_M4_threadsTable[_M4_i],NULL,(void *(*)(void *))$1,(void *)$2);
+	pthread_create(&_M4_threadsTable[_M4_i],$3,(void *(*)(void *))$1,(void *)$2);
+	//Abhi added another parameter : the attribute
 		// printf("tid=%d %d\n", _M4_i, _M4_threadsTable[_M4_i]);
     }
 ')
 
-define(CREATE, `CREATE_WITH_ARG($1,NULL);')
+define(CREATE, `CREATE_WITH_ARG($1,NULL,NULL);')
 
 define(SELF, `( long)pthread_self()')
 

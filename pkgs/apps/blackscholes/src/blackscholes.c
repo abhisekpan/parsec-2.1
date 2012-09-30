@@ -6,14 +6,21 @@
 // 
 // Reference Source: Options, Futures, and Other Derivatives, 3rd Edition, Prentice 
 // Hall, John C. Hull,
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-
+//#include <config.h>
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
+//Abhi===
+#include <sched.h>
+//#include <stdbool.h>
+#define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
+#define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
+
+pthread_barrier_t warmup_barrier;
+//=======
 #endif
 
 // Multi-threaded pthreads header
@@ -221,8 +228,39 @@ fptype BlkSchlsEqEuroNoDiv( fptype sptprice,
 #ifdef WIN32
 DWORD WINAPI bs_thread(LPVOID tid_ptr){
 #else
-int bs_thread(void *tid_ptr) {
+  int bs_thread(void *tid_ptr) {
 #endif
+
+//Abhi== thread binding to core is complete
+#ifdef ENABLE_PARSEC_HOOKS
+    bool set_range = false;
+    int cpu_base = 0, cpu_num = 0;
+    char *str_num = getenv(__PARSEC_CPU_NUM);
+    char *str_base = getenv(__PARSEC_CPU_BASE);
+    if ((str_num != NULL)&& (str_base != NULL)) {
+      cpu_num = atoi(str_num);
+      cpu_base = atoi(str_base);
+      set_range = true;
+    }
+    if(set_range) {
+      int core_id = cpu_base + ((*((int*)tid_ptr)) % cpu_num);
+      __parsec_binding_done((unsigned int)core_id);
+    }
+#endif
+
+//Abhi ==
+//==barrier to indicate end of warmup
+#ifdef ENABLE_PARSEC_HOOKS
+    int wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (wait_over == PTHREAD_BARRIER_SERIAL_THREAD)  __parsec_warmup_over();
+    else {
+      if (wait_over != 0) {
+	printf ("Error in barrier wait. Exiting...\n");
+	exit(1);
+      }
+    }
+#endif // ENABLE_PARSEC_HOOKS
+
     int i, j;
     fptype price;
     fptype priceDelta;
@@ -367,9 +405,46 @@ int main (int argc, char **argv)
 #endif
 #ifdef ENABLE_THREADS
     int tids[nThreads];
+    //Abhi attributes
+    pthread_attr_t attr[nThreads];
+    cpu_set_t mask[nThreads];
+    //Abhi == initialize warm up barrier
+    int ret = pthread_barrier_init(&warmup_barrier, NULL, nThreads);
+    if (ret != 0) {
+      fprintf(stderr,"Failed to initialize warmup barrier. Exiting...\n");
+      exit(1);
+    }
     for(i=0; i<nThreads; i++) {
         tids[i]=i;
-        CREATE_WITH_ARG(bs_thread, &tids[i]);
+	//Abhi ===
+	if(pthread_attr_init(&attr[i])) {
+	  fprintf(stderr,"Failed to initialize attribute for thread. Exiting...\n");
+	  exit(1);
+	}
+#ifdef ENABLE_PARSEC_HOOKS
+	bool set_range = false;
+	int cpu_base = 0, cpu_num = 0;
+	char *str_num = getenv(__PARSEC_CPU_NUM);
+	char *str_base = getenv(__PARSEC_CPU_BASE);
+	if ((str_num != NULL)&& (str_base != NULL)) {
+	  cpu_num = atoi(str_num);
+	  cpu_base = atoi(str_base);
+	  set_range = true;
+	}
+	//set affinity
+	if(set_range) {
+	  CPU_ZERO(&mask[i]);
+	  int core_id = cpu_base + (i % cpu_num);
+	  CPU_SET(core_id, &mask[i]);
+	  if (!pthread_attr_setaffinity_np(&attr[i], sizeof(mask[i]), &mask[i])) {
+	    fprintf(stderr, "thread %d bound to core %d\n", i, core_id);
+	  } else {
+	    fprintf(stderr, " Error: failure in setting affinity for thread %d\n", i);
+	  }
+	}
+#endif
+        CREATE_WITH_ARG(bs_thread, &tids[i], &attr[i]);
+	//===
     }
     WAIT_FOR_END(nThreads);
 #else//ENABLE_THREADS
@@ -441,3 +516,29 @@ int main (int argc, char **argv)
     return 0;
 }
 
+/*  pid_t tid0; */
+/*     tid0 = syscall(SYS_gettid); */
+/*     fprintf(stderr,"core id for this thread: %d\n", sched_getcpu()); */
+/*     fprintf(stderr,"my thread id: %u\n", tid0); */
+/*     bool set_range = false; */
+/*     int cpu_base = 0, cpu_num = 0; */
+/*     char *str_num = getenv(__PARSEC_CPU_NUM); */
+/*     char *str_base = getenv(__PARSEC_CPU_BASE); */
+/*     if ((str_num != NULL)&& (str_base != NULL)) { */
+/*       cpu_num = atoi(str_num); */
+/*       cpu_base = atoi(str_base); */
+/*       set_range = true; */
+/*     } */
+/*     //set affinity */
+/*     if(set_range) { */
+/*       cpu_set_t mask; */
+/*       CPU_ZERO(&mask); */
+/*       int core_id = cpu_base + (tid % cpu_num); */
+/*       CPU_SET(core_id, &mask); */
+/*       if (!sched_setaffinity(0, sizeof(mask), &mask)) { */
+/* 	fprintf(stderr, "thread %d bound to core %d\n", tid, core_id); */
+
+/*       } else { */
+/* 	fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid); */
+/*       } */
+/*     } */

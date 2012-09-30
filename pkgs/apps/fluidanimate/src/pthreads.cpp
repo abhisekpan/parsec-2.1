@@ -15,6 +15,14 @@
 
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
+//Abhi===
+#include <sched.h>
+#include <stdbool.h>
+#define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
+#define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
+
+pthread_barrier_t warmup_barrier;
+//=======
 #endif
 
 static inline int isLittleEndian() {
@@ -127,7 +135,11 @@ struct Grid
 	int ex, ey, ez;
 } *grids;
 bool *border;			// flags which cells lie on grid boundaries
-pthread_attr_t attr;
+//Abhi=== we will be using the attr
+//pthread_attr_t attr
+pthread_attr_t *attr;
+cpu_set_t * cpu_mask;
+//===
 pthread_t *thread;
 pthread_mutex_t **mutex;	// used to lock cells in RebuildGrid and also particles in other functions
 pthread_barrier_t barrier;	// global barrier used by all threads
@@ -275,10 +287,44 @@ void InitSim(char const *fileName, unsigned int threadnum)
 									border[index] = true;
 							}
 				}
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-
+	//===Abhi we change the attributes to set the affinity
+	//pthread_attr_init(&attr);
+	//pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	attr = new pthread_attr_t[threadnum];
+	cpu_mask = new cpu_set_t[threadnum];
+	for(int i = 0; i < threadnum; ++i) {
+	  pthread_attr_init(&attr[i]);
+	  pthread_attr_setdetachstate(&attr[i], PTHREAD_CREATE_JOINABLE);
+#ifdef ENABLE_PARSEC_HOOKS
+	  bool set_range = false;
+	  int cpu_base = 0, cpu_num = 0;
+	  char *str_num = getenv(__PARSEC_CPU_NUM);
+	  char *str_base = getenv(__PARSEC_CPU_BASE);
+	  if ((str_num != NULL)&& (str_base != NULL)) {
+	    cpu_num = atoi(str_num);
+	    cpu_base = atoi(str_base);
+	    set_range = true;
+	  }
+	  //set affinity
+	  if(set_range) {
+	    CPU_ZERO(&cpu_mask[i]);
+	    int core_id = cpu_base + (i % cpu_num);
+	    CPU_SET(core_id, &cpu_mask[i]);
+	    if (!pthread_attr_setaffinity_np(&attr[i], sizeof(cpu_mask[i]), &cpu_mask[i])) {
+	      fprintf(stderr, "thread %d bound to core %d\n", i, core_id);
+	    } else {
+	      fprintf(stderr, " Error: failure in setting affinity for thread %d\n", i);
+	    }
+	  }
+#endif
+	}
+	//initialize warm up barrier
+	int ret = pthread_barrier_init(&warmup_barrier, NULL, threadnum);
+	if (ret != 0) {
+	  printf("Failed to initialize warmup barrier. Exiting...\n");
+	  exit(1);
+	}
+	//===
 	mutex = new pthread_mutex_t *[numCells];
 	for(int i = 0; i < numCells; ++i)
 	{
@@ -443,8 +489,12 @@ void SaveFile(char const *fileName)
 
 void CleanUpSim()
 {
-	pthread_attr_destroy(&attr);
-
+        //Abhi === now there are an array of attributes
+	//pthread_attr_destroy(&attr);
+        for(int i = 0; i < NUM_GRIDS; ++i) pthread_attr_destroy(&attr[i]);
+	pthread_barrier_destroy(&warmup_barrier);
+	delete [] cpu_mask;
+	//===
 	for(int i = 0; i < numCells; ++i)
 	{
 		int n = (border[i] ? 16 : 1);
@@ -803,8 +853,36 @@ void AdvanceFrameMT(int i)
 
 void *AdvanceFramesMT(void *args)
 {
-	thread_args *targs = (thread_args *)args;
-
+    thread_args *targs = (thread_args *)args;
+    //Abhi=== thread binding to core is complete
+#ifdef ENABLE_PARSEC_HOOKS
+    bool set_range = false;
+    int cpu_base = 0, cpu_num = 0;
+    char *str_num = getenv(__PARSEC_CPU_NUM);
+    char *str_base = getenv(__PARSEC_CPU_BASE);
+    if ((str_num != NULL)&& (str_base != NULL)) {
+      cpu_num = atoi(str_num);
+      cpu_base = atoi(str_base);
+      set_range = true;
+    }
+    if(set_range) {
+      int core_id = cpu_base + (targs->tid % cpu_num);
+      __parsec_binding_done((unsigned int) core_id);
+    }
+#endif
+    //===
+    //Abhi == call barrier to indicate end of warmup
+#ifdef ENABLE_PARSEC_HOOKS    
+    int wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (wait_over == PTHREAD_BARRIER_SERIAL_THREAD)  __parsec_warmup_over();
+    else {
+      if (wait_over != 0) {
+	printf ("Error in barrier wait. Exiting...\n");
+	exit(1);
+      }
+    }
+#endif // ENABLE_PARSEC_HOOKS
+    //===
 	for(int i = 0; i < targs->frames; ++i)
 		AdvanceFrameMT(targs->tid);
 
@@ -854,7 +932,8 @@ int main(int argc, char *argv[])
 	for(int i = 0; i < threadnum; ++i) {
 		targs[i].tid = i;
 		targs[i].frames = framenum;
-		pthread_create(&thread[i], &attr, AdvanceFramesMT, &targs[i]);
+		//pthread_create(&thread[i], &attr, AdvanceFramesMT, &targs[i]);
+		pthread_create(&thread[i], &attr[i], AdvanceFramesMT, &targs[i]); //Abhi
 	}
 	// *** PARALLEL PHASE *** //
 	for(int i = 0; i < threadnum; ++i) {
@@ -877,3 +956,27 @@ int main(int argc, char *argv[])
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+    //Abhi ==bind the threads to a core
+// #ifdef ENABLE_PARSEC_HOOKS
+//     bool set_range = false;
+//     int cpu_base = 0, cpu_num = 0;
+//     char *str_num = getenv(__PARSEC_CPU_NUM);
+//     char *str_base = getenv(__PARSEC_CPU_BASE);
+//     if ((str_num != NULL)&& (str_base != NULL)) {
+//       cpu_num = atoi(str_num);
+//       cpu_base = atoi(str_base);
+//       set_range = true;
+//     }
+//     //set affinity
+//     if(set_range) {
+//       cpu_set_t mask;
+//       CPU_ZERO(&mask);
+//       int core_id = cpu_base + (targs->tid % cpu_num);
+//       CPU_SET(core_id, &mask);
+//       if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+// 	fprintf(stderr, "thread %d bound to core %d\n", targs->tid, core_id);
+//       } else {
+// 	fprintf(stderr, " Error: failure in setting affinity for thread %d\n", targs->tid);
+//       }
+//     }
+// #endif

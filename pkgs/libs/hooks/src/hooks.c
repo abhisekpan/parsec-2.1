@@ -75,7 +75,6 @@ static double time_end;
 
 /** Enable debugging code */
 #define DEBUG 0
-
 #if DEBUG
 /* Counters to keep track of number of invocations of hooks */
 static int num_bench_begins = 0;
@@ -112,7 +111,6 @@ void __parsec_bench_begin(enum __parsec_benchmark __bench) {
   //default values
   int cpu_num= CPU_SETSIZE;
   int cpu_base = 0;
-
   //check environment for desired affinity
   bool set_range = false;
   char *str_num = getenv(__PARSEC_CPU_NUM);
@@ -149,8 +147,14 @@ void __parsec_bench_begin(enum __parsec_benchmark __bench) {
       CPU_SET(i, &mask);
     }
     printf(HOOKS_PREFIX" Using %i CPUs (%i-%i)\n", cpu_num, cpu_base, cpu_base+cpu_num-1);
+    //Abhi : binding the thread to a single core, since whenever threads will be created later,
+    //they will be bound to appropriate cores
+    CPU_ZERO(&mask);
+    CPU_SET(cpu_base, &mask);
     sched_setaffinity(0, sizeof(mask), &mask);
+    __parsec_binding_done((unsigned int)cpu_base);
   }
+  
   #endif //ENABLE_SETAFFINITY
 }
 
@@ -189,7 +193,11 @@ void __parsec_roi_begin() {
   #endif //ENABLE_TIMING
 
   #if ENABLE_SIMICS_MAGIC
-  MAGIC_BREAKPOINT;
+  //Abhi
+  //We are not using the simics magic breakpoint as such, since we want to pass more information
+  //through the rax register. Hence we are using our own implementation.
+  //MAGIC_BREAKPOINT;
+  start_sim_timer();
   #endif //ENABLE_SIMICS_MAGIC
 
   #if ENABLE_PTLSIM_TRIGGER
@@ -208,7 +216,11 @@ void __parsec_roi_end() {
   #endif //DEBUG
 
   #if ENABLE_SIMICS_MAGIC
-  MAGIC_BREAKPOINT;
+  //Abhi
+  //We are not using the simics magic breakpoint as such, since we want to pass more information
+  //through the rax register. Hence we are using our own implementation.
+  //MAGIC_BREAKPOINT;
+  stop_sim_timer();
   #endif //ENABLE_SIMICS_MAGIC
 
   #if ENABLE_PTLSIM_TRIGGER
@@ -225,3 +237,27 @@ void __parsec_roi_end() {
   fflush(NULL);
 }
 
+//===Abhi===
+// End of warm up, using CSM_CODE_START_PERIOD to identify the end of warmup
+void __parsec_warmup_over() {
+#if ENABLE_SIMICS_MAGIC
+  warm_up_over();
+#endif //ENABLE_SIMICS_MAGIC
+}
+void __parsec_local_start() {
+#if ENABLE_SIMICS_MAGIC
+  csm_local_start_period();
+#endif
+}
+void __parsec_local_end() {
+#if ENABLE_SIMICS_MAGIC
+  csm_local_end_period();
+#endif
+}
+// Thread has been bound to core, using CSM_CODE_DO_FIRSTTOUCH to identify this
+void __parsec_binding_done(unsigned int c) {
+#if ENABLE_SIMICS_MAGIC
+  binding_done(c);
+#endif //ENABLE_SIMICS_MAGIC
+}
+//=========

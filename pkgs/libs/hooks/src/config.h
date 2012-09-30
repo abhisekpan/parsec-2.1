@@ -105,10 +105,15 @@
  *
  * This functionality is disabled by default.
  */
-#define ENABLE_SIMICS_MAGIC 0
+#define ENABLE_SIMICS_MAGIC 1
 /* Path to Simics directory, if you want to use its magic instructions */
 #if ENABLE_SIMICS_MAGIC
-#include "/opt/virtutech/simics-latest/src/include/simics/magic-instruction.h"
+//Abhi 
+// instead of using the normal magic instruction we are also passing
+// extra info through the rax register. Hence we are using our own implementation
+// of magic instruction
+#include "csm.h"
+//#include "/opt/virtutech/simics-3.0.31/src/include/simics/magic-instruction.h"
 #endif
 
 /** \brief Execute PTLsim trigger calls at beginning and end of

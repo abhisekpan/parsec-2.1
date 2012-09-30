@@ -40,7 +40,7 @@ using namespace tbb;
 #define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
 #define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
 pthread_barrier_t warmup_barrier;
-bool warmup_done = false;
+volatile bool warmup_done = false;
 //=======
 #endif
 
@@ -1776,6 +1776,7 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
       arg[i].barrier = &barrier;
 #ifdef ENABLE_THREADS
       //Abhi === bind the threads
+      pthread_attr_init(&attr[i]);
 #ifdef ENABLE_PARSEC_HOOKS
       bool set_range = false;
       int cpu_base = 0, cpu_num = 0;
@@ -1810,6 +1811,7 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
 #ifdef ENABLE_THREADS
     for ( int i = 0; i < nproc; i++) {
       pthread_join(threads[i],NULL);
+      pthread_attr_destroy(&attr[i]); //Abhi
     }
 #endif
 

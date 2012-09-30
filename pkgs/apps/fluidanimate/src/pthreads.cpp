@@ -11,6 +11,8 @@
 #include <pthread.h>
 #include <assert.h>
 
+//Abhi customized barrier
+#include "mybarrier.h"
 #include "parsec_barrier.hpp"
 
 #ifdef ENABLE_PARSEC_HOOKS
@@ -18,6 +20,7 @@
 //Abhi===
 #include <sched.h>
 #include <stdbool.h>
+
 #define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
 #define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
 
@@ -141,8 +144,12 @@ pthread_attr_t *attr;
 cpu_set_t * cpu_mask;
 //===
 pthread_t *thread;
-pthread_mutex_t **mutex;	// used to lock cells in RebuildGrid and also particles in other functions
-pthread_barrier_t barrier;	// global barrier used by all threads
+//Abhi === use spinlock
+//pthread_mutex_t **mutex;	// used to lock cells in RebuildGrid and also particles in other functions
+pthread_spinlock_t **slock;
+//Abhi === use custom barrier
+//pthread_barrier_t barrier;	// global barrier used by all threads
+MyBarrier *barrier;
 typedef struct __thread_args {
   int tid;			//thread id, determines work partition
   int frames;			//number of frames to compute
@@ -318,22 +325,30 @@ void InitSim(char const *fileName, unsigned int threadnum)
 	  }
 #endif
 	}
-	//initialize warm up barrier
+	//initialize warm up barrier	
 	int ret = pthread_barrier_init(&warmup_barrier, NULL, threadnum);
 	if (ret != 0) {
 	  printf("Failed to initialize warmup barrier. Exiting...\n");
 	  exit(1);
 	}
 	//===
-	mutex = new pthread_mutex_t *[numCells];
+	//Abhi == use spinlock
+	//mutex = new pthread_mutex_t *[numCells];
+	slock = new pthread_spinlock_t *[numCells];
 	for(int i = 0; i < numCells; ++i)
 	{
 		int n = (border[i] ? 16 : 1);
-		mutex[i] = new pthread_mutex_t[n];
+		//Abhi === use spinlock
+		//mutex[i] = new pthread_mutex_t[n];
+		slock[i] = new pthread_spinlock_t[n];
 		for(int j = 0; j < n; ++j)
-			pthread_mutex_init(&mutex[i][j], NULL);
+		  //Abhi use spin lock		 
+		  //pthread_mutex_init(&mutex[i][j], NULL);
+		  pthread_spin_init(&slock[i][j], NULL);
 	}
-	pthread_barrier_init(&barrier, NULL, NUM_GRIDS);
+	//Abhi === use custom barrier
+	//pthread_barrier_init(&barrier, NULL, NUM_GRIDS);
+	barrier = new MyBarrier(NUM_GRIDS);
 
 	cells = new Cell[numCells];
 	cells2 = new Cell[numCells];
@@ -499,11 +514,18 @@ void CleanUpSim()
 	{
 		int n = (border[i] ? 16 : 1);
 		for(int j = 0; j < n; ++j)
-			pthread_mutex_destroy(&mutex[i][j]);
-		delete[] mutex[i];
+		  //Abhi === use spinlock
+		  //pthread_mutex_destroy(&mutex[i][j]);
+		  pthread_spin_destroy(&slock[i][j]);
+		//delete[] mutex[i];
+		delete[] slock[i];
 	}
-	pthread_barrier_destroy(&barrier);
-	delete[] mutex;
+	//Abhi === use custom barrier
+	//pthread_barrier_destroy(&barrier);
+	delete barrier;
+	//Abhi === use spinlock
+	//delete[] mutex;
+	delete[] slock;
 
 	delete[] border;
 
@@ -554,9 +576,13 @@ void RebuildGridMT(int i)
 					int np;
 					if(border[index2])
 					{
-						pthread_mutex_lock(&mutex[index2][0]);
+					  //Abhi == use spinlock
+					  //pthread_mutex_lock(&mutex[index2][0]);
+					  pthread_spin_lock(&slock[index2][0]);
 						np = cnumPars[index2]++;
-						pthread_mutex_unlock(&mutex[index2][0]);
+						//Abhi === use spinlock
+ 						//pthread_mutex_unlock(&mutex[index2][0]);
+						pthread_spin_unlock(&slock[index2][0]);
 					}
 					else
 						np = cnumPars[index2]++;
@@ -657,18 +683,26 @@ void ComputeDensitiesMT(int i)
 
 									if(border[index])
 									{
-										pthread_mutex_lock(&mutex[index][j]);
+									  //Abhi use spinlock
+									  //pthread_mutex_lock(&mutex[index][j]);
+									  pthread_spin_lock(&slock[index][j]);
 										cell.density[j] += tc;
-										pthread_mutex_unlock(&mutex[index][j]);
+										//Abhi === use spinlock
+										//pthread_mutex_unlock(&mutex[index][j]);
+										pthread_spin_unlock(&slock[index][j]);
 									}
 									else
 										cell.density[j] += tc;
 
 									if(border[indexNeigh])
 									{
-										pthread_mutex_lock(&mutex[indexNeigh][iparNeigh]);
+									  //Abhi === use spinlock
+									  //pthread_mutex_lock(&mutex[indexNeigh][iparNeigh]);
+									  pthread_spin_lock(&slock[indexNeigh][iparNeigh]);
 										neigh.density[iparNeigh] += tc;
-										pthread_mutex_unlock(&mutex[indexNeigh][iparNeigh]);
+										//Abhi === use spinlock
+										//pthread_mutex_unlock(&mutex[indexNeigh][iparNeigh]);
+										pthread_spin_unlock(&slock[indexNeigh][iparNeigh]);
 									}
 									else
 										neigh.density[iparNeigh] += tc;
@@ -739,18 +773,26 @@ void ComputeForcesMT(int i)
 
 									if(border[index])
 									{
-										pthread_mutex_lock(&mutex[index][j]);
+									  //Abhi === use spinlock
+									  //pthread_mutex_lock(&mutex[index][j]);
+									  pthread_spin_lock(&slock[index][j]);
 										cell.a[j] += acc;
-										pthread_mutex_unlock(&mutex[index][j]);
+										//Abhi === use spinlock
+										//pthread_mutex_unlock(&mutex[index][j]);
+										pthread_spin_unlock(&slock[index][j]);
 									}
 									else
 										cell.a[j] += acc;
 
 									if(border[indexNeigh])
 									{
-										pthread_mutex_lock(&mutex[indexNeigh][iparNeigh]);
+									  //Abhi === use spin lock
+									  //pthread_mutex_lock(&mutex[indexNeigh][iparNeigh]);
+									  pthread_spin_lock(&slock[indexNeigh][iparNeigh]);
 										neigh.a[iparNeigh] -= acc;
-										pthread_mutex_unlock(&mutex[indexNeigh][iparNeigh]);
+										//Abhi == use spin lock
+										//pthread_mutex_unlock(&mutex[indexNeigh][iparNeigh]);
+										pthread_spin_unlock(&slock[indexNeigh][iparNeigh]);
 									}
 									else
 										neigh.a[iparNeigh] -= acc;
@@ -834,21 +876,30 @@ void AdvanceParticlesMT(int i)
 void AdvanceFrameMT(int i)
 {
 	ClearParticlesMT(i);
-	pthread_barrier_wait(&barrier);
+	//Abhi === replace barriers with the customized one
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	RebuildGridMT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	InitDensitiesAndForcesMT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	ComputeDensitiesMT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	ComputeDensities2MT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	ComputeForcesMT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	ProcessCollisionsMT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 	AdvanceParticlesMT(i);
-	pthread_barrier_wait(&barrier);
+	//pthread_barrier_wait(&barrier);
+	barrier->Wait(i);
 }
 
 void *AdvanceFramesMT(void *args)

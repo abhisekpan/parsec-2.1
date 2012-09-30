@@ -31,6 +31,14 @@ tbb::cache_aligned_allocator<parm> memory_parm;
 
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
+//Abhi===
+#include <sched.h>
+#include <stdbool.h>
+#define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
+#define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
+
+pthread_barrier_t warmup_barrier;
+//=======
 #endif
 
 int NUM_TRIALS = DEFAULT_NUM_TRIALS;
@@ -78,6 +86,34 @@ struct Worker {
 
 void * worker(void *arg){
   int tid = *((int *)arg);
+//Abhi===  thread binding to core is complete
+#ifdef ENABLE_PARSEC_HOOKS
+  bool set_range = false;
+  int cpu_base = 0, cpu_num = 0;
+  char *str_num = getenv(__PARSEC_CPU_NUM);
+  char *str_base = getenv(__PARSEC_CPU_BASE);
+  if ((str_num != NULL)&& (str_base != NULL)) {
+    cpu_num = atoi(str_num);
+    cpu_base = atoi(str_base);
+    set_range = true;
+  }
+  if(set_range) {
+    int core_id = cpu_base + (tid % cpu_num);
+    __parsec_binding_done((unsigned int)core_id);
+  }
+#endif
+  //Abhi == call the barrieer wait to denote the end of warmup
+#ifdef ENABLE_PARSEC_HOOKS
+  int wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (wait_over == PTHREAD_BARRIER_SERIAL_THREAD)  __parsec_warmup_over();
+  else {
+    if (wait_over != 0) {
+      printf ("Error in barrier wait. Exiting...\n");
+      exit(1);
+    }
+  }
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   FTYPE pdSwaptionPrice[2];
 
   int chunksize = nSwaptions/nThreads;
@@ -155,16 +191,20 @@ int main(int argc, char *argv[])
 	tbb::task_scheduler_init init(nThreads);
 #else
 	pthread_t      *threads;
-	pthread_attr_t  pthread_custom_attr;
-
+	//Abhi === we need the attributes
+	//	pthread_attr_t  pthread_custom_attr;
+	pthread_attr_t  *pthread_custom_attr;
+	//===
 	if ((nThreads < 1) || (nThreads > MAX_THREAD))
 	{
 		fprintf(stderr,"Number of threads must be between 1 and %d.\n", MAX_THREAD);
 		exit(1);
 	}
 	threads = (pthread_t *) malloc(nThreads * sizeof(pthread_t));
-	pthread_attr_init(&pthread_custom_attr);
-
+	//Abhi === 
+	pthread_custom_attr = new pthread_attr_t[nThreads]; //(pthread_attr_t *) malloc(nThreads * sizeof(pthread_attr_t));	
+	//pthread_attr_init(&pthread_custom_attr);
+	//===
 #endif // TBB_VERSION
 
 	if ((nThreads < 1) || (nThreads > MAX_THREAD))
@@ -261,17 +301,53 @@ int main(int argc, char *argv[])
 	Worker w;
 	tbb::parallel_for(tbb::blocked_range<int>(0,nSwaptions,TBB_GRAINSIZE),w);
 #else
-	
 	int threadIDs[nThreads];
+	//Abhi == initialize warm up barrier
+	cpu_set_t mask[nThreads];
+	int ret = pthread_barrier_init(&warmup_barrier, NULL, nThreads);
+	if (ret != 0) {
+	  printf("Failed to initialize warmup barrier. Exiting...\n");
+	  exit(1);
+	}
+	//===
         for (i = 0; i < nThreads; i++) {
+	  //Abhi=== we change the attributes to set the affinity
+	  pthread_attr_init(&pthread_custom_attr[i]);
+#ifdef ENABLE_PARSEC_HOOKS
+	  bool set_range = false;
+	  int cpu_base = 0, cpu_num = 0;
+	  char *str_num = getenv(__PARSEC_CPU_NUM);
+	  char *str_base = getenv(__PARSEC_CPU_BASE);
+	  if ((str_num != NULL)&& (str_base != NULL)) {
+	    cpu_num = atoi(str_num);
+	    cpu_base = atoi(str_base);
+	    set_range = true;
+	  }
+	  //set affinity
+	  if(set_range) {
+	    CPU_ZERO(&mask[i]);
+	    int core_id = cpu_base + (i % cpu_num);
+	    CPU_SET(core_id, &mask[i]);
+	    if (!pthread_attr_setaffinity_np(&pthread_custom_attr[i], sizeof(mask[i]), &mask[i])) {
+	      fprintf(stderr, "thread %d bound to core %d\n", i, core_id);
+	    } else {
+	      fprintf(stderr, " Error: failure in setting affinity for thread %d\n", i);
+	      exit(1);
+	    }
+	  }
+#endif
+
           threadIDs[i] = i;
-          pthread_create(&threads[i], &pthread_custom_attr, worker, &threadIDs[i]);
+          pthread_create(&threads[i], &pthread_custom_attr[i], worker, &threadIDs[i]);
         }
         for (i = 0; i < nThreads; i++) {
           pthread_join(threads[i], NULL);
         }
 
 	free(threads);
+	//Abhi===
+	delete [] pthread_custom_attr;
+	//===
 
 #endif // TBB_VERSION	
 
@@ -310,3 +386,27 @@ int main(int argc, char *argv[])
 
 	return iSuccess;
 }
+// //bind the threads to a core
+// #ifdef ENABLE_PARSEC_HOOKS
+//   bool set_range = false;
+//   int cpu_base = 0, cpu_num = 0;
+//   char *str_num = getenv(__PARSEC_CPU_NUM);
+//   char *str_base = getenv(__PARSEC_CPU_BASE);
+//   if ((str_num != NULL)&& (str_base != NULL)) {
+//     cpu_num = atoi(str_num);
+//     cpu_base = atoi(str_base);
+//     set_range = true;
+//   }
+//   //set affinity
+//   if(set_range) {
+//     cpu_set_t mask;
+//     CPU_ZERO(&mask);
+//     int core_id = cpu_base + (tid % cpu_num);
+//     CPU_SET(core_id, &mask);
+//     if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+//       fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+//     } else {
+//       fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+//     }
+//   }
+// #endif

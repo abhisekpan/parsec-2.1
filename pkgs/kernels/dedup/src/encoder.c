@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "util.h"
 #include "dedupdef.h"
 #include "encoder.h"
@@ -12,6 +13,14 @@
 
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
+//Abhi===
+#include <sched.h>
+#include <stdbool.h>
+#define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
+#define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
+
+pthread_barrier_t warmup_barrier;
+//=======
 #endif
 
 #ifdef PARALLEL
@@ -57,6 +66,8 @@ struct thread_args {
   int fd;
   //configuration, last pipeline stage only
   config * conf;
+  //Abhi - global thread id
+  int g_tid;
 };
 
 static int write_file(int fd, u_char type, int seq_count, u_long len, u_char * content) {
@@ -156,7 +167,39 @@ void *Compress(void * targs) {
   const int qid = args->tid / MAX_THREADS_PER_QUEUE;
   send_buf_item * item;
   send_buf_item ** fetchbuf;
-
+  //Abhi======
+  int tid = args->g_tid;
+  //bind the threads to a core
+#ifdef ENABLE_PARSEC_HOOKS
+  bool set_range = false;
+  int cpu_base = 0, cpu_num = 0;
+  char *str_num = getenv(__PARSEC_CPU_NUM);
+  char *str_base = getenv(__PARSEC_CPU_BASE);
+  if ((str_num != NULL)&& (str_base != NULL)) {
+    cpu_num = atoi(str_num);
+    cpu_base = atoi(str_base);
+    set_range = true;
+  }
+  //set affinity
+  if(set_range) {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    int core_id = cpu_base + (tid % cpu_num);
+    CPU_SET(core_id, &mask);
+    if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+      __parsec_binding_done((unsigned int)core_id);   // successfully bound the thread to the core
+      fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+    } else {
+      fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+    }
+  }
+  //barrier to indicate end of warmup
+  int wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+    EXIT_TRACE("Error in barrier wait. Exiting...\n");
+  }
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   fetchbuf = (send_buf_item **)malloc(sizeof(send_buf_item *)*ITEM_PER_FETCH);
   if(fetchbuf == NULL) {
     EXIT_TRACE("Memory allocation failed.\n");
@@ -309,7 +352,40 @@ ChunkProcess(void * targs) {
   const int qid = args->tid / MAX_THREADS_PER_QUEUE;
   data_chunk chunk;
   send_buf_item * item;
+  //Abhi======
+  int tid = args->g_tid;
+  //bind the threads to a core
+#ifdef ENABLE_PARSEC_HOOKS
+  bool set_range = false;
+  int cpu_base = 0, cpu_num = 0;
+  char *str_num = getenv(__PARSEC_CPU_NUM);
+  char *str_base = getenv(__PARSEC_CPU_BASE);
+  if ((str_num != NULL)&& (str_base != NULL)) {
+    cpu_num = atoi(str_num);
+    cpu_base = atoi(str_base);
+    set_range = true;
+  }
+  //set affinity
+  if(set_range) {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    int core_id = cpu_base + (tid % cpu_num);
+    CPU_SET(core_id, &mask);
+    if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+      __parsec_binding_done((unsigned int)core_id);
+      fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+    } else {
+      fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+    }
+  }
+  //barrier to indicate end of warmup
+  int wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+    EXIT_TRACE("Error in barrier wait. Exiting...\n");
+  }
 
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   data_chunk * fetchbuf[CHUNK_ANCHOR_PER_FETCH];
   int fetch_count = 0, fetch_start = 0;
   
@@ -379,7 +455,39 @@ FindAllAnchors(void * targs) {
   data_chunk * fetchbuf[MAX_PER_FETCH];
   int fetch_count = 0;
   int fetch_start = 0;
-  
+  //Abhi======
+  int tid = args->g_tid;
+  //bind the threads to a core
+#ifdef ENABLE_PARSEC_HOOKS
+  bool set_range = false;
+  int cpu_base = 0, cpu_num = 0;
+  char *str_num = getenv(__PARSEC_CPU_NUM);
+  char *str_base = getenv(__PARSEC_CPU_BASE);
+  if ((str_num != NULL)&& (str_base != NULL)) {
+    cpu_num = atoi(str_num);
+    cpu_base = atoi(str_base);
+    set_range = true;
+  }
+  //set affinity
+  if(set_range) {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    int core_id = cpu_base + (tid % cpu_num);
+    CPU_SET(core_id, &mask);
+    if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+      __parsec_binding_done((unsigned int)core_id);
+      fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+    } else {
+      fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+    }
+  }
+  //barrier to indicate end of warmup
+  int wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+    EXIT_TRACE("Error in barrier wait. Exiting...\n");
+  }
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   u32int * rabintab = malloc(256*sizeof rabintab[0]);
   u32int * rabinwintab = malloc(256*sizeof rabintab[0]);
   if(rabintab == NULL || rabinwintab == NULL) {
@@ -646,7 +754,41 @@ DataProcess(void * targs){
   u_long tmp;
   u_char * p;
   //int avg_bsize = 0;
- 
+  //Abhi======
+  int tid = args->g_tid;
+  //bind the threads to a core
+#ifdef ENABLE_PARSEC_HOOKS
+  if (tid >= 0) {
+    bool set_range = false;
+    int cpu_base = 0, cpu_num = 0;
+    char *str_num = getenv(__PARSEC_CPU_NUM);
+    char *str_base = getenv(__PARSEC_CPU_BASE);
+    if ((str_num != NULL)&& (str_base != NULL)) {
+      cpu_num = atoi(str_num);
+      cpu_base = atoi(str_base);
+      set_range = true;
+    }
+    //set affinity
+    if(set_range) {
+      cpu_set_t mask;
+      CPU_ZERO(&mask);
+      int core_id = cpu_base + (tid % cpu_num);
+      CPU_SET(core_id, &mask);
+      if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+	__parsec_binding_done((unsigned int)core_id);
+	fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+      } else {
+	fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+      }
+    }
+    //barrier to indicate end of warmup
+    int wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+      EXIT_TRACE("Error in barrier wait. Exiting...\n");
+    }
+  }
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   u_char * anchor;
   
   u_char * src = (u_char *)malloc(MAXBUF*2);
@@ -767,7 +909,42 @@ SendBlock(void * targs)
   int qid = 0;
   int fd = 0;
   struct hash_entry * entry; 
-
+  //Abhi======
+  int tid = args->g_tid;
+  //bind the threads to a core
+#ifdef ENABLE_PARSEC_HOOKS
+  if (tid >= 0) {
+    bool set_range = false;
+    int cpu_base = 0, cpu_num = 0;
+    char *str_num = getenv(__PARSEC_CPU_NUM);
+    char *str_base = getenv(__PARSEC_CPU_BASE);
+    if ((str_num != NULL)&& (str_base != NULL)) {
+      cpu_num = atoi(str_num);
+      cpu_base = atoi(str_base);
+      set_range = true;
+    }
+    //set affinity
+    
+    if(set_range) {
+      cpu_set_t mask;
+      CPU_ZERO(&mask);
+      int core_id = cpu_base + (tid % cpu_num);
+      CPU_SET(core_id, &mask);
+      if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+	fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+	__parsec_binding_done((unsigned int)core_id);
+      } else {
+	fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+      }
+    }
+    //barrier to indicate end of warmup
+    int wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+      EXIT_TRACE("Error in barrier wait. Exiting...\n");
+    }
+  }
+#endif // ENABLE_PARSEC_HOOKS
+  //============
   fd = open(conf->outfile, O_CREAT|O_TRUNC|O_WRONLY|O_TRUNC);
   if (fd < 0) {
     perror("SendBlock open");
@@ -1080,6 +1257,7 @@ Encode(config * conf)
     printf("Out of memory\n");
     exit(1);
   }
+
   int threads_per_queue;
   for(int i=0; i<nqueues; i++) {
     if (i < nqueues -1 || conf->nthreads %MAX_THREADS_PER_QUEUE == 0) {
@@ -1143,13 +1321,17 @@ Encode(config * conf)
     threads_chunk[MAX_THREADS],
     threads_compress[MAX_THREADS],
     threads_send, threads_process;
-
+  int global_tid = 0; //Abhi
   struct thread_args data_process_args;
   data_process_args.tid = 0;
   data_process_args.nqueues = nqueues;
   data_process_args.fd = fd;
+  int ret, wait_over; //Abhi, for warm up barriers
   if (conf->preloading) {
     //Preload entire file if selected by user to reduce I/O during parallel phase
+    // If this path is taken, no new thread is created. -1 signals the function that
+    // there has been no thread creation
+    data_process_args.g_tid = -1;
     DataProcess(&data_process_args);
 #ifdef ENABLE_PARSEC_HOOKS
     __parsec_roi_begin();
@@ -1158,40 +1340,119 @@ Encode(config * conf)
 #ifdef ENABLE_PARSEC_HOOKS
     __parsec_roi_begin();
 #endif
+    data_process_args.g_tid = global_tid++; //Abhi === a new thread is being created
+    //Abhi == initialize warm up barrier
+#ifdef ENABLE_PARSEC_HOOKS
+    ret = pthread_barrier_init(&warmup_barrier, NULL, 2);
+    if (ret != 0) EXIT_TRACE("Failed to initialize warmup barrier. Exiting...\n");
     //thread for first pipeline stage (input)
     pthread_create(&threads_process, NULL, DataProcess, &data_process_args);
+    //==Abhi == call barrier to indicate creation of threads for first stage
+    wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+      EXIT_TRACE("Error in barrier wait. Exiting...\n");
+    } else {
+      ret = pthread_barrier_destroy(&warmup_barrier);
+      if (ret != 0) EXIT_TRACE("Failed to destroy warmup barrier. Exiting...\n");
+    }
+#endif
   }
-
+  //Abhi == Initialize barrier for 2nd stage
+#ifdef ENABLE_PARSEC_HOOKS
+  ret = pthread_barrier_init(&warmup_barrier, NULL, conf->nthreads + 1);
+  if (ret != 0) EXIT_TRACE("Failed to initialize warmup barrier. Exiting...\n");
+#endif
   int i;
 
   //Create 3 thread pools for the intermediate pipeline stages
   struct thread_args chunk_thread_args[conf->nthreads];
   for (i = 0; i < conf->nthreads; i ++) {
     chunk_thread_args[i].tid = i;
+    chunk_thread_args[i].g_tid = global_tid++; //Abhi
     pthread_create(&threads_chunk[i], NULL, ChunkProcess, &chunk_thread_args[i]);
   }
+  
+  //Abhi == barrier to indicate creation of threads for 2nd stage
+#ifdef ENABLE_PARSEC_HOOKS
+  wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+    EXIT_TRACE("Error in barrier wait. Exiting...\n");
+  } else {
+    ret = pthread_barrier_destroy(&warmup_barrier);
+    if (ret != 0) EXIT_TRACE("Failed to destroy warmup barrier. Exiting...\n");
+  }
+  //Abhi == Initialize barrier for 3rd stage
+  ret = pthread_barrier_init(&warmup_barrier, NULL, conf->nthreads + 1);
+  if (ret != 0) EXIT_TRACE("Failed to initialize warmup barrier. Exiting...\n");
+#endif
 
   struct thread_args anchor_thread_args[conf->nthreads];
   for (i = 0; i < conf->nthreads; i ++) {
      anchor_thread_args[i].tid = i;
+     anchor_thread_args[i].g_tid = global_tid++; //Abhi
      pthread_create(&threads_anchor[i], NULL, FindAllAnchors, &anchor_thread_args[i]);
   }
+
+  //Abhi == barrier to indicate creation of threads for 3rd stage
+#ifdef ENABLE_PARSEC_HOOKS
+  wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+    EXIT_TRACE("Error in barrier wait. Exiting...\n");
+  } else {
+    ret = pthread_barrier_destroy(&warmup_barrier);
+    if (ret != 0) EXIT_TRACE("Failed to destroy warmup barrier. Exiting...\n");
+  }
+  //Abhi == Initialize barrier for 4th stage
+  ret = pthread_barrier_init(&warmup_barrier, NULL, conf->nthreads + 1);
+  if (ret != 0) EXIT_TRACE("Failed to initialize warmup barrier. Exiting...\n");
+#endif
 
   struct thread_args compress_thread_args[conf->nthreads];
   for (i = 0; i < conf->nthreads; i ++) {
     compress_thread_args[i].tid = i;
+    compress_thread_args[i].g_tid = global_tid++; //Abhi
     pthread_create(&threads_compress[i], NULL, Compress, &compress_thread_args[i]);
   }
+
+  //Abhi == barrier to indicate creation of threads for 4th stage
+#ifdef ENABLE_PARSEC_HOOKS
+  wait_over = pthread_barrier_wait(&warmup_barrier);
+  if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+    EXIT_TRACE("Error in barrier wait. Exiting...\n");
+  } else {
+    ret = pthread_barrier_destroy(&warmup_barrier);
+    if (ret != 0) EXIT_TRACE("Failed to destroy warmup barrier. Exiting...\n");
+    if (conf->preloading) __parsec_warmup_over(); // no more threads to be created
+  }
+#endif
 
   //thread for last pipeline stage (output)
   struct thread_args send_block_args;
   send_block_args.tid = 0;
+  send_block_args.g_tid = -1; //Abhi, this might or might not create a new thread
   send_block_args.nqueues = nqueues;
   send_block_args.conf = conf;
   if (!conf->preloading) {
+    send_block_args.g_tid = global_tid++; //Abhi, new thread will be created
+#ifdef ENABLE_PARSEC_HOOKS 
+    //Abhi == Initialize barrier for the last (5th) stage
+    ret = pthread_barrier_init(&warmup_barrier, NULL, 2);
+    if (ret != 0) EXIT_TRACE("Failed to initialize warmup barrier. Exiting...\n");
+#endif
     pthread_create(&threads_send, NULL, SendBlock, &send_block_args);
+    //Abhi == barrier to indicate creation of threads for 5th stage 
+#ifdef ENABLE_PARSEC_HOOKS
+    wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+      EXIT_TRACE("Error in barrier wait. Exiting...\n");
+    } else {
+      ret = pthread_barrier_destroy(&warmup_barrier);
+      if (ret != 0) EXIT_TRACE("Failed to destroy warmup barrier. Exiting...\n");
+      __parsec_warmup_over();
+    }
+#endif
   }
-
+  
   /*** parallel phase ***/
 
   //join all threads 

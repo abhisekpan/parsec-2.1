@@ -68,6 +68,7 @@ class WorkerGroup: protected ThreadGroup, protected Runnable {
     threads::Condition workAvailable;               //condition to wait on for work
     threads::Barrier *workDoneBarrier;              //barrier to wait on for results
     threads::Barrier *poolReadyBarrier;             //work done, reset completed
+    threads::Barrier *tCreatedBarrier; //Abhi  //b  ar//r ier to wait on creation of all threads
 
     //Receive command with proper synchronization
     thread_internal_cmd_t RecvCmd();

@@ -35,14 +35,16 @@ WorkerGroup::WorkerGroup(int nThreads) : cmd(THREADS_IDLE), workAvailable(workDi
   
   workDoneBarrier = new threads::Barrier(nThreads);
   poolReadyBarrier = new threads::Barrier(nThreads + 1);
-  
+  tCreatedBarrier = new threads::Barrier(nThreads + 1); //Abhi
   ThreadGroup::CreateThreads(nThreads, *this);
+  tCreatedBarrier->Wait(); //Abhi == wait till all threads are created
 }
 
 //destructor
 WorkerGroup::~WorkerGroup() {
   delete workDoneBarrier;
   delete poolReadyBarrier;
+  delete tCreatedBarrier; //Abhi
 }
 
 //Add a new command
@@ -124,7 +126,8 @@ void WorkerGroup::Run() {
   static thread_rank_t counter = 0;
   thread_rank_t rank;
   thread_internal_cmd_t cmd;
-
+  // Abhi: call the barrier after thread is created and bound
+  tCreatedBarrier->Wait();
   //determine rank of this thread
   workDispatch.Lock();
   rank = counter;

@@ -249,6 +249,7 @@ int mainPthreads(string path, int cameras, int frames, int particles, int layers
 
 #if defined(ENABLE_PARSEC_HOOKS)
         __parsec_roi_begin();
+	__parsec_warmup_over(); //Abhi threads have already been created. Hence warmup done
 #endif
 	for(int i = 0; i < frames; i++)														//process each set of frames
 	{	cout << "Processing frame " << i << endl;

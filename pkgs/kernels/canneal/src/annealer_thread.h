@@ -61,21 +61,22 @@ public:
 	:_netlist(netlist),
 	_keep_going_global_flag(true),
 	_moves_per_thread_temp(swaps_per_temp/nthreads),
-	_start_temp(start_temp),
+        _start_temp(start_temp),
 	_number_temp_steps(number_temp_steps)
-	{
+        {
 		assert(_netlist != NULL);
 #ifdef ENABLE_THREADS
-		pthread_barrier_init(&_barrier, NULL, nthreads);
+                pthread_barrier_init(&_barrier, NULL, nthreads);
 #endif
 	};
 	
 	~annealer_thread() {
 #ifdef ENABLE_THREADS
-		pthread_barrier_destroy(&_barrier);
+                pthread_barrier_destroy(&_barrier);
 #endif
-	}					
-	void Run();
+	}		
+	//Abhi
+	void Run(int tid);
 					
 protected:
 	move_decision_t accept_move(routing_cost_t delta_cost, double T, Rng* rng);
@@ -89,7 +90,7 @@ protected:
 	int _start_temp;
 	int _number_temp_steps;
 #ifdef ENABLE_THREADS
-	pthread_barrier_t _barrier;
+        pthread_barrier_t _barrier;
 #endif
 };
 

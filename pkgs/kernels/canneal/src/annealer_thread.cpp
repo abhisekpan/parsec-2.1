@@ -47,7 +47,7 @@ using std::endl;
 //*****************************************************************************************
 //
 //*****************************************************************************************
-void annealer_thread::Run()
+void annealer_thread::Run(int tid) //Abhi
 {
 	int accepted_good_moves=0;
 	int accepted_bad_moves=-1;
@@ -59,12 +59,13 @@ void annealer_thread::Run()
 	netlist_elem* a = _netlist->get_random_element(&a_id, NO_MATCHING_ELEMENT, &rng);
 	netlist_elem* b = _netlist->get_random_element(&b_id, NO_MATCHING_ELEMENT, &rng);
 
-	int temp_steps_completed=0; 
+	int temp_steps_completed=0;
+	//std::cerr << "thread " << tid << " running " << std::endl;
 	while(keep_going(temp_steps_completed, accepted_good_moves, accepted_bad_moves)){
 		T = T / 1.5;
 		accepted_good_moves = 0;
 		accepted_bad_moves = 0;
-		
+		//std::cerr << "thread " << tid << " in while" << std::endl;
 		for (int i = 0; i < _moves_per_thread_temp; i++){
 			//get a new element. Only get one new element, so that reuse should help the cache
 			a = b;

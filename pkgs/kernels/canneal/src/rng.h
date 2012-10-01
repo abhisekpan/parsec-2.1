@@ -37,15 +37,26 @@
 #endif
 
 #include "MersenneTwister.h"
-
+#define USE_SPINLOCK 0
 class Rng
 {
 public:
 	Rng() {
 #ifdef ENABLE_THREADS
-		pthread_mutex_lock(&seed_lock);
+	  //Abhi == replace mutex lock by spin lock
+	  //pthread_mutex_lock(&seed_lock);
+#ifdef USE_SPINLOCK
+	  pthread_spin_lock(&seed_lock);
+#else
+	  pthread_mutex_lock(&seed_lock);
+#endif 
 		_rng = new MTRand(seed++);
+		//pthread_mutex_unlock(&seed_lock);
+#ifdef USE_SPINLOCK
+		pthread_spin_unlock(&seed_lock);
+#else
 		pthread_mutex_unlock(&seed_lock);
+#endif
 #else
 		_rng = new MTRand(seed++);
 #endif //ENABLE_THREADS
@@ -59,7 +70,11 @@ public:
 protected:
 	//use same random seed for each run
 	static unsigned int seed;
+#ifdef USE_SPINLOCK
+	static pthread_spinlock_t seed_lock;
+#else
 	static pthread_mutex_t seed_lock;
+#endif 
 	MTRand *_rng;
 };
 

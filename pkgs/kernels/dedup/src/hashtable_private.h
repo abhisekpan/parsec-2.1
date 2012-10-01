@@ -3,7 +3,6 @@
 
 #ifndef __HASHTABLE_PRIVATE_CWC22_H__
 #define __HASHTABLE_PRIVATE_CWC22_H__
-
 #include <errno.h>
 #include "config.h"
 
@@ -30,7 +29,9 @@ struct hashtable {
     struct hash_entry **table;
 #ifdef PARALLEL
     //Each entry in table array is protected with its own lock
-    pthread_mutex_t *locks;
+  //Abhi use spinlock
+  pthread_spinlock_t *locks;
+  //pthread_mutex_t *locks;
 #endif
 #ifdef ENABLE_DYNAMIC_EXPANSION
     unsigned int entrycount;

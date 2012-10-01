@@ -50,10 +50,14 @@ create_hashtable(unsigned int minsize,
     h->tablelength  = size;
 #ifdef PARALLEL
     //allocate and initialize array with locks
-    h->locks = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t) * size);
+    //Abhi use spinlocks
+    h->locks = (pthread_spinlock_t *)malloc(sizeof(pthread_spinlock_t) * size);
+    //h->locks = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t) * size);
     if(NULL == h->locks) {free(h->table); free(h); return NULL;} /*oom*/
     for(unsigned int i=0; i<size; i++) {
-        pthread_mutex_init(&(h->locks[i]), NULL);
+      //Abhi use spinlock
+      pthread_spin_init(&(h->locks[i]), NULL);
+      //pthread_mutex_init(&(h->locks[i]), NULL);
     }
 #endif
 #ifdef ENABLE_DYNAMIC_EXPANSION
@@ -82,7 +86,9 @@ hash(struct hashtable *h, void *k)
 
 #ifdef PARALLEL
 /*****************************************************************************/
-pthread_mutex_t *
+//Abhi use spinlock
+//pthread_mutex_t *
+pthread_spin_t *
 hashtable_getlock(struct hashtable *h, void *k) {
     unsigned int hashvalue, index;
 
@@ -297,7 +303,9 @@ hashtable_destroy(struct hashtable *h, int free_values)
     }
 #ifdef PARALLEL
     for(i=0; i<h->tablelength; i++) {
-        pthread_mutex_destroy(&(h->locks[i]));
+      //Abhi use spinlock
+      //pthread_mutex_destroy(&(h->locks[i]));
+      pthread_spin_destroy(&(h->locks[i]));
     }
     free(h->locks);
 #endif

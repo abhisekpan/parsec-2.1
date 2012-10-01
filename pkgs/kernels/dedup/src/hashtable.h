@@ -3,7 +3,6 @@
 
 #ifndef __HASHTABLE_CWC22_H__
 #define __HASHTABLE_CWC22_H__
-
 #include "config.h"
 
 //WARNING: Dynamic expansion is not thread-safe
@@ -104,7 +103,9 @@ create_hashtable(unsigned int minsize,
  * accesses to the hash table with this key are thread-safe.
  */
 #ifdef PARALLEL
-pthread_mutex_t *
+//Abhi use spinlock
+//pthread_mutex_t *
+pthread_spinlock_t *
 hashtable_getlock(struct hashtable *h, void *k);
 #endif
 

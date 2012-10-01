@@ -70,6 +70,7 @@ void annealer_thread::Run(int tid) //Abhi
 			//get a new element. Only get one new element, so that reuse should help the cache
 			a = b;
 			a_id = b_id;
+			
 			b = _netlist->get_random_element(&b_id, a_id, &rng);
 			
 			routing_cost_t delta_cost = calculate_delta_routing_cost(a,b);
@@ -85,10 +86,16 @@ void annealer_thread::Run(int tid) //Abhi
 			} else if (is_good_move == move_decision_rejected){
 				//no need to do anything for a rejected move
 			}
+			//std::cerr << "thread " << tid << " in for" << i << std::endl;
 		}
 		temp_steps_completed++;
 #ifdef ENABLE_THREADS
-		pthread_barrier_wait(&_barrier);
+		//Abhi
+		//pthread_barrier_wait(&_barrier);
+		//std::cerr << "thread " << tid << " reached barrier ============================================" << temp_steps_completed << std::endl;
+		//int ret = 
+		_barrier.Wait(tid);
+		//if (ret == PTHREAD_BARRIER_SERIAL_THREAD) std::cerr << "completed: " << temp_steps_completed << std::endl;
 #endif
 	}
 }

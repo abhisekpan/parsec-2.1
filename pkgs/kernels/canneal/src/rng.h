@@ -37,7 +37,7 @@
 #endif
 
 #include "MersenneTwister.h"
-#define USE_SPINLOCK 0
+#define USE_SPINLOCK 1
 class Rng
 {
 public:
@@ -70,6 +70,8 @@ public:
 protected:
 	//use same random seed for each run
 	static unsigned int seed;
+	//Abhi == replace the mutex lock by spin lock
+	//static pthread_mutex_t seed_lock;
 #ifdef USE_SPINLOCK
 	static pthread_spinlock_t seed_lock;
 #else

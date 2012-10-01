@@ -34,6 +34,8 @@
 //global seed used for rng initialization
 unsigned int Rng::seed = 0;
 #ifdef ENABLE_THREADS  
+//Abhi === replace mutex lock with spin lock
+//pthread_mutex_t Rng::seed_lock = PTHREAD_MUTEX_INITIALIZER;
 #ifdef USE_SPINLOCK
 pthread_spinlock_t Rng::seed_lock = (pthread_spinlock_t) 1;
 #else

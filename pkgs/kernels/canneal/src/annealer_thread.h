@@ -42,6 +42,9 @@
 #include "netlist_elem.h"
 #include "rng.h"
 
+//Abhi
+#include "mybarrier.h"
+
 class annealer_thread 
 {
 public:
@@ -61,18 +64,24 @@ public:
 	:_netlist(netlist),
 	_keep_going_global_flag(true),
 	_moves_per_thread_temp(swaps_per_temp/nthreads),
-        _start_temp(start_temp),
-	_number_temp_steps(number_temp_steps)
-        {
+	_start_temp(start_temp),
+        _number_temp_steps(number_temp_steps)
+#ifdef ENABLE_THREADS
+	, _barrier(nthreads)
+#endif
+	{
 		assert(_netlist != NULL);
 #ifdef ENABLE_THREADS
-                pthread_barrier_init(&_barrier, NULL, nthreads);
+		//Abhi
+		//pthread_barrier_init(&_barrier, NULL, nthreads);
+		
 #endif
 	};
 	
 	~annealer_thread() {
 #ifdef ENABLE_THREADS
-                pthread_barrier_destroy(&_barrier);
+	  //Abhi
+	  //pthread_barrier_destroy(&_barrier);
 #endif
 	}		
 	//Abhi
@@ -90,7 +99,9 @@ protected:
 	int _start_temp;
 	int _number_temp_steps;
 #ifdef ENABLE_THREADS
-        pthread_barrier_t _barrier;
+	//Abhi ===
+	//pthread_barrier_t _barrier;
+	MyBarrier _barrier;
 #endif
 };
 

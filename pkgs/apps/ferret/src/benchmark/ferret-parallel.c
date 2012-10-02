@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software Foundation,
 Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 */
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <math.h>
 #include <sys/types.h>
@@ -32,6 +33,13 @@ Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
+//Abhi===
+#include <sched.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
+#define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
+//=======
 #endif
 
 #define DEFAULT_DEPTH	25
@@ -211,13 +219,50 @@ int scan_dir (const char *dir, char *head)
 	return 0;
 }
 
-
+//Abhi ==bind the threads to a core
+void bind_to_core(int tid) {
+#ifdef ENABLE_PARSEC_HOOKS
+    bool set_range = false;
+    int cpu_base = 0, cpu_num = 0;
+    char *str_num = getenv(__PARSEC_CPU_NUM);
+    char *str_base = getenv(__PARSEC_CPU_BASE);
+    int wait_over;
+    if ((str_num != NULL)&& (str_base != NULL)) {
+      cpu_num = atoi(str_num);
+      cpu_base = atoi(str_base);
+      set_range = true;
+    }
+    //set affinity
+    if(set_range) {
+      cpu_set_t mask;
+      CPU_ZERO(&mask);
+      int core_id = cpu_base + (tid % cpu_num);
+      CPU_SET(core_id, &mask);
+      if (!sched_setaffinity(0, sizeof(mask), &mask)) {
+	fprintf(stderr, "thread %d bound to core %d\n", tid, core_id);
+	__parsec_binding_done((unsigned int)core_id);   // successfully bound the thread to the core
+      } else {
+	fprintf(stderr, " Error: failure in setting affinity for thread %d\n", tid);
+      }
+    }
+    //barrier to indicate end of warmup
+    wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+      printf ("Error in barrier wait. Exiting...\n");
+      exit(1); 
+    }
+#endif // ENABLE_PARSEC_HOOKS
+}
+//===============
 
 /* ------ The Stages ------ */
 void *t_load (void *dummy)
 {
-	const char *dir = (const char *)dummy;
-
+        //Abhi
+        ThreadArg_t * threadarg = (ThreadArg_t *)dummy;
+	bind_to_core(threadarg->tid);
+	const char *dir = (const char *)threadarg->arg;
+	//====
 	path[0] = 0;
 
 	if (strcmp(dir, ".") == 0)
@@ -238,7 +283,10 @@ void *t_seg (void *dummy)
 {
 	struct seg_data *seg;
 	struct load_data *load;
-
+	//Abhi===
+	ThreadArg_t * threadarg = (ThreadArg_t *)dummy;
+	bind_to_core(threadarg->tid);
+	//=======
 	for (;;)
 	{
 		queue_dequeue_wait(&q_load_seg, &load);
@@ -265,7 +313,10 @@ void *t_extract (void *dummy)
 {
 	struct seg_data *seg;
 	struct extract_data *extract;
-
+	//Abhi===
+	ThreadArg_t * threadarg = (ThreadArg_t *)dummy;
+	bind_to_core(threadarg->tid);
+	//=======
 	for (;;)
 	{
 		queue_dequeue_wait(&q_seg_extract, &seg);
@@ -290,6 +341,10 @@ void *t_vec (void *dummy)
 	struct extract_data *extract;
 	struct vec_query_data *vec;
 	cass_query_t query;
+	//Abhi===
+	ThreadArg_t * threadarg = (ThreadArg_t *)dummy;
+	bind_to_core(threadarg->tid);
+	//=======
 	for (;;)
 	{
 		queue_dequeue_wait(&q_extract_vec, &extract);
@@ -328,6 +383,10 @@ void *t_rank (void *dummy)
 	struct rank_data *rank;
 	cass_result_t *candidate;
 	cass_query_t query;
+	//Abhi===
+	ThreadArg_t * threadarg = (ThreadArg_t *)dummy;
+	bind_to_core(threadarg->tid);
+	//=======
 	for (;;)
 	{
 		queue_dequeue_wait(&q_vec_rank, &vec);
@@ -369,6 +428,10 @@ void *t_rank (void *dummy)
 void *t_out (void *dummy)
 {
 	struct rank_data *rank;
+	//Abhi===
+	ThreadArg_t * threadarg = (ThreadArg_t *)dummy;
+	bind_to_core(threadarg->tid);
+	//=======
 	for (;;)
 	{
 		queue_dequeue_wait(&q_rank_out, &rank);
@@ -549,14 +612,20 @@ int main (int argc, char *argv[])
 #ifdef ENABLE_PARSEC_HOOKS
 	__parsec_roi_begin();
 #endif
-	p_load = tpool_create(t_load_desc, NTHREAD_LOAD);
-	p_seg = tpool_create(t_seg_desc, NTHREAD_SEG);
-	p_extract = tpool_create(t_extract_desc, NTHREAD_EXTRACT);
-	p_vec = tpool_create(t_vec_desc, NTHREAD_VEC);
-	p_rank = tpool_create(t_rank_desc, NTHREAD_RANK);
-	p_out = tpool_create(t_out_desc, NTHREAD_OUT);
-
-
+	//Abhi === extra parameter to denote the last batch of threads
+/* 	p_load = tpool_create(t_load_desc, NTHREAD_LOAD); */
+/* 	p_seg = tpool_create(t_seg_desc, NTHREAD_SEG); */
+/* 	p_extract = tpool_create(t_extract_desc, NTHREAD_EXTRACT); */
+/* 	p_vec = tpool_create(t_vec_desc, NTHREAD_VEC); */
+/* 	p_rank = tpool_create(t_rank_desc, NTHREAD_RANK); */
+/* 	p_out = tpool_create(t_out_desc, NTHREAD_OUT); */
+	p_load = tpool_create(t_load_desc, NTHREAD_LOAD, 0);
+	p_seg = tpool_create(t_seg_desc, NTHREAD_SEG, 0);
+	p_extract = tpool_create(t_extract_desc, NTHREAD_EXTRACT, 0);
+	p_vec = tpool_create(t_vec_desc, NTHREAD_VEC, 0);
+	p_rank = tpool_create(t_rank_desc, NTHREAD_RANK, 0);
+	p_out = tpool_create(t_out_desc, NTHREAD_OUT, 1);
+	
 	pthread_mutex_lock(&done_mutex);
 	if (!output_end) pthread_cond_wait(&done, &done_mutex);
 	tpool_cancel(p_load);

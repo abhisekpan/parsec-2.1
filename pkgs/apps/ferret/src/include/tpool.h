@@ -19,6 +19,13 @@ typedef enum {
     POOL_STATE_ERROR
 } pool_state_t;
 
+//Abhi===
+typedef struct ThreadArg_s {
+  void * arg;
+  int tid;
+} ThreadArg_t;
+pthread_barrier_t warmup_barrier;
+//====
 typedef struct tpool_s {
     /* The number of threads in this pool */
     int nthreads;
@@ -27,6 +34,10 @@ typedef struct tpool_s {
     
     /* The state of the pool */
     pool_state_t state;
+    /*Abhi - thread arguments*/
+#ifdef ENABLE_PARSEC_HOOKS
+    ThreadArg_t* threadargs;
+#endif
 } tpool_t;
 
 /* The arguments passed to pthread_create */
@@ -49,7 +60,9 @@ typedef struct tdesc_s {
  *
  * return:      Pointer to the thread pool (or NULL if an error occurred)
  */
-tpool_t *tpool_create(tdesc_t *opts, int nthreads);
+//Abhi == see tpool.c
+//tpool_t *tpool_create(tdesc_t *opts, int nthreads);
+tpool_t *tpool_create(tdesc_t *opts, int nthreads, int last);
 
 /*
  * Destroys the thread pool.

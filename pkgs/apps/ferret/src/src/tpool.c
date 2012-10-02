@@ -26,7 +26,7 @@ Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #include <stdlib.h>
 #include <assert.h>
 #include <pthread.h>
-
+#include <stdio.h> //Abhi
 #include "tpool.h"
 
 
@@ -39,13 +39,17 @@ Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  *
  * return:      Pointer to the thread pool (or NULL if an error occurred)
  */
-tpool_t *tpool_create(tdesc_t *opts, int nthreads) {
+//Abhi the last parameter indicates this is the last batch of threads to be created
+tpool_t *tpool_create(tdesc_t *opts, int nthreads, int last) {
     int i;
     tpool_t *pool;
     const pthread_attr_t *attr;
     void *arg;
     int rv;
-    
+    //Abhi===
+    static int numthreads;
+    int ret, wait_over;
+    //===
     /* Check arguments */
     if(opts == NULL || nthreads < 1) {
         return NULL;
@@ -55,19 +59,35 @@ tpool_t *tpool_create(tdesc_t *opts, int nthreads) {
             return NULL;
         }
     }
-    
+
     /* Create data structure */
     pool = (tpool_t *)malloc(sizeof(tpool_t));
     if(pool == NULL) {
         return NULL;
     }
+    //Abhi===
+    pool->threadargs = (ThreadArg_t *)malloc(sizeof(ThreadArg_t) * nthreads);
+    if(pool->threadargs == NULL) {
+        free(pool);
+        return NULL;
+    }
+   
     pool->threads = (pthread_t *)malloc(sizeof(pthread_t) * nthreads);
     if(pool->threads == NULL) {
         free(pool);
         return NULL;
     }
     
+    //Abhi == initialize warm up barrier
+#ifdef ENABLE_PARSEC_HOOKS
+    ret = pthread_barrier_init(&warmup_barrier, NULL, nthreads + 1);
+    if (ret != 0) {
+      printf("Failed to initialize warmup barrier. Exiting...\n");
+      exit(1);
+    }
+#endif
     /* Create threads and initialize data structures */
+    //Abhi== 
     for(i=0; i<nthreads; i++) {
         if(opts[i].attr == NULL) {
             attr = NULL;
@@ -75,18 +95,38 @@ tpool_t *tpool_create(tdesc_t *opts, int nthreads) {
             attr = opts[i].attr;
         }
         if(opts[i].arg == NULL) {
-            arg = NULL;
+            //arg = NULL;
+            pool->threadargs[i].arg = NULL;
         } else {
-            arg = opts[i].arg;
+            //arg = opts[i].arg;
+             pool->threadargs[i].arg = opts[i].arg;
         }
-        
-        rv = pthread_create(&(pool->threads[i]), attr, opts[i].start_routine, arg);
+         pool->threadargs[i].tid = numthreads++;
+        //Abhi
+//        rv = pthread_create(&(pool->threads[i]), attr, opts[i].start_routine, arg);
+        rv = pthread_create(&(pool->threads[i]), attr, opts[i].start_routine, (void*)&pool->threadargs[i]);
         if(rv != 0) {
             free(pool->threads);
             free(pool);
             return NULL;
         }
     }
+    //==Abhi == barrier to indicate creation of threads
+#ifdef ENABLE_PARSEC_HOOKS   
+    wait_over = pthread_barrier_wait(&warmup_barrier);
+    if (!((wait_over == PTHREAD_BARRIER_SERIAL_THREAD)|| (wait_over == 0))) {
+      printf("Error in barrier wait. Exiting...\n");
+      exit(1);
+    } else {
+      ret = pthread_barrier_destroy(&warmup_barrier);
+      if (ret != 0) {
+	printf("Failed to destroy warmup barrier. Exiting...\n");
+	exit(1);
+      }
+      if (last==1) __parsec_warmup_over();
+    }
+#endif
+    //====
     pool->nthreads = nthreads;
     pool->state = POOL_STATE_RUNNING;
     
@@ -106,6 +146,7 @@ void tpool_destroy(tpool_t *pool) {
     assert(pool->state!=POOL_STATE_RUNNING);
     
     free(pool->threads);
+    free(pool->threadargs); //Abhi
     free(pool);
 }
 

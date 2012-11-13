@@ -107,10 +107,10 @@ static inline void stop_sim_timer()
 {
         threadreg(CSM_CODE_STOP_TIMER);
 }
-//Abhi=== we are using CSM_CODE_START_PERIOD to identify the end of warmup
+//Abhi=== we are using CSM_CODE_SET_FINEGRAIN_RANGE to identify the end of warmup
 static inline void warm_up_over()
 {
-        threadreg(CSM_CODE_START_PERIOD);
+        threadreg(CSM_CODE_SET_FINEGRAIN_RANGE);
 }
 
 //Abhi=== we are using CSM_CODE_DO_FIRSTTOUCH to identify that thread has been bound to core

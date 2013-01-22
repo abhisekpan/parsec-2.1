@@ -35,11 +35,13 @@ using namespace tbb;
 #ifdef ENABLE_PARSEC_HOOKS
 #include <hooks.h>
 //Abhi===
-#include <sched.h>
 #include <stdbool.h>
+#ifdef ENABLE_THREADS
+#include <sched.h>
 #define __PARSEC_CPU_BASE "PARSEC_CPU_BASE"
 #define __PARSEC_CPU_NUM "PARSEC_CPU_NUM"
 pthread_barrier_t warmup_barrier;
+#endif
 volatile bool warmup_done = false;
 //=======
 #endif
@@ -57,7 +59,7 @@ using namespace std;
 /* higher ITER also scales the running time almost linearly */
 #define ITER 3 // iterate ITER* k log k times; ITER >= 1
 
-#define CACHE_LINE 32 // cache line in byte
+#define CACHE_LINE 64 // cache line in byte
 
 /* this structure represents a point */
 /* these will be passed around to avoid copying coordinates */
@@ -736,17 +738,18 @@ float pspeedy(Points *points, float z, long *kcenter, int pid, pthread_barrier_t
     points->p[k].cost = distance * points->p[k].weight;
     points->p[k].assign=0;
   }
+
+  if( pid==0 )   {
+    *kcenter = 1;
+    costs = (double*)malloc(sizeof(double)*nproc);
+  }
+ 
   //Abhi=== inserting this barrier - bugfix
   //http://parsec.cs.princeton.edu/download/2.1/bugfixes/streamcluster_barrier.patch
 #ifdef ENABLE_THREADS
   pthread_barrier_wait(barrier);
 #endif
   //===
-  if( pid==0 )   {
-    *kcenter = 1;
-    costs = (double*)malloc(sizeof(double)*nproc);
-  }
-    
   if( pid != 0 ) { // we are not the master threads. we wait until a center is opened.
     while(1) {
 #ifdef ENABLE_THREADS
@@ -1700,9 +1703,10 @@ void* localSearchSub(void* arg_) {
 
   pkmedian_arg_t* arg= (pkmedian_arg_t*)arg_;
   //Abhi======
-  int tid = arg->pid;
-  //binding  the threads to core is complete
 #ifdef ENABLE_PARSEC_HOOKS
+#ifdef ENABLE_THREADS  
+  //binding  the threads to core is complete
+  int tid = arg->pid;
   bool set_range = false;
   int cpu_base = 0, cpu_num = 0;
   char *str_num = getenv(__PARSEC_CPU_NUM);
@@ -1716,18 +1720,24 @@ void* localSearchSub(void* arg_) {
     int core_id = cpu_base + (tid % cpu_num);
     __parsec_binding_done((unsigned int)core_id);
   }
+#endif // ENABLE_THREADS
   //barrier to indicate end of warmup
   if (!warmup_done) {
+#ifdef ENABLE_THREADS
     int wait_over = pthread_barrier_wait(&warmup_barrier);
     if (wait_over == PTHREAD_BARRIER_SERIAL_THREAD) {
+#endif // ENABLE_THREADS
       warmup_done = true;
       __parsec_warmup_over();
+#ifdef ENABLE_THREADS
+      pthread_barrier_destroy(&warmup_barrier);
     } else {
       if (wait_over != 0) {
-	printf ("Error in barrier wait. Exiting...\n");
+	printf ("Error in warmup barrier wait. Exiting...\n");
 	exit(1);
       }
     }
+#endif // ENABLE_THREADS
   }
 #endif // ENABLE_PARSEC_HOOKS
   //============
@@ -1753,11 +1763,14 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
     pthread_t* threads = new pthread_t[nproc];
     pkmedian_arg_t* arg = new pkmedian_arg_t[nproc];
     //Abhi === attributes
+#ifdef ENABLE_PARSEC_HOOKS
     pthread_attr_t *attr = new pthread_attr_t[nproc];
     cpu_set_t *mask = new cpu_set_t[nproc];
+#endif // ENABLE_PARSEC_HOOKS
     //===
 #ifdef ENABLE_THREADS
     pthread_barrier_init(&barrier,NULL,nproc);
+#ifdef ENABLE_PARSEC_HOOKS
     if (!warmup_done) {
       int ret = pthread_barrier_init(&warmup_barrier, NULL, nproc);
       if (ret != 0) {
@@ -1765,7 +1778,8 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
 	exit(1);
       }
     }
-#endif
+#endif // ENABLE_PARSEC_HOOKS
+#endif // ENABLE_THREADS
     for( int i = 0; i < nproc; i++ ) {
       arg[i].points = points;
       arg[i].kmin = kmin;
@@ -1776,8 +1790,8 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
       arg[i].barrier = &barrier;
 #ifdef ENABLE_THREADS
       //Abhi === bind the threads
-      pthread_attr_init(&attr[i]);
 #ifdef ENABLE_PARSEC_HOOKS
+      pthread_attr_init(&attr[i]);
       bool set_range = false;
       int cpu_base = 0, cpu_num = 0;
       char *str_num = getenv(__PARSEC_CPU_NUM);
@@ -1799,9 +1813,10 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
 	  exit(1);
 	}
       }
-#endif
-      //pthread_create(threads+i,NULL,localSearchSub,(void*)&arg[i]);
       pthread_create(threads+i,&attr[i],localSearchSub,(void*)&arg[i]);
+#else
+      pthread_create(threads+i,NULL,localSearchSub,(void*)&arg[i]);
+#endif // ENALBLE_PARSEC_HOOKS
       //===
 #else
       localSearchSub(&arg[0]);
@@ -1811,14 +1826,18 @@ void localSearch( Points* points, long kmin, long kmax, long* kfinal ) {
 #ifdef ENABLE_THREADS
     for ( int i = 0; i < nproc; i++) {
       pthread_join(threads[i],NULL);
+#ifdef ENABLE_PARSEC_HOOKS
       pthread_attr_destroy(&attr[i]); //Abhi
+#endif // ENALBLE_PARSEC_HOOKS
     }
 #endif
 
     delete[] threads;
     delete[] arg;
+#ifdef ENABLE_PARSEC_HOOKS
     delete[] attr; //Abhi
     delete[] mask; //Abhi
+#endif // ENALBLE_PARSEC_HOOKS
 #ifdef ENABLE_THREADS
     pthread_barrier_destroy(&barrier);
 #endif

@@ -238,7 +238,6 @@ void __parsec_roi_end() {
 }
 
 //===Abhi===
-// End of warm up, using CSM_CODE_START_PERIOD to identify the end of warmup
 void __parsec_warmup_over() {
 #if ENABLE_SIMICS_MAGIC
   warm_up_over();

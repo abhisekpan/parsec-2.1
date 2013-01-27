@@ -20,7 +20,6 @@
 #endif //HAVE_LIBPTHREAD
 
 #include <exception>
-# include "Mutex.h" //Abhi
 
 namespace threads {
 
@@ -47,22 +46,11 @@ class ThreadCreationException: public std::exception {
   public:
     virtual const char *what() const throw() {return "Error creating thread";}
 };
-//Abhi
-class ThreadArg {
- public:
-  Runnable* t_obj;
-  int tid;
-};
-//====
+
 //A thread
 class Thread {
   private:
     Runnable &tobj;
-    //Abhi===
-    static Mutex *M;
-    static int thread_count;
-    ThreadArg thread_arg;
-    //=======
 #if defined(HAVE_LIBPTHREAD)
     pthread_t t;
 #else //default: winthreads

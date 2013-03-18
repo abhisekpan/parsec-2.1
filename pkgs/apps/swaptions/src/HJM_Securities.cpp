@@ -202,7 +202,7 @@ int main(int argc, char *argv[])
 	}
 	threads = (pthread_t *) malloc(nThreads * sizeof(pthread_t));
 	//Abhi === 
-	pthread_custom_attr = new pthread_attr_t[nThreads]; //(pthread_attr_t *) malloc(nThreads * sizeof(pthread_attr_t));	
+	pthread_custom_attr = (pthread_attr_t *) malloc(nThreads * sizeof(pthread_attr_t)); //new pthread_attr_t[nThreads];
 	//pthread_attr_init(&pthread_custom_attr);
 	//===
 #endif // TBB_VERSION
@@ -346,8 +346,7 @@ int main(int argc, char *argv[])
 
 	free(threads);
 	//Abhi===
-	delete [] pthread_custom_attr;
-	//===
+	free(pthread_custom_attr);
 
 #endif // TBB_VERSION	
 
@@ -375,6 +374,7 @@ int main(int argc, char *argv[])
 #ifdef TBB_VERSION
 	memory_parm.deallocate(swaptions, sizeof(parm));
 #else
+	//===
         free(swaptions);
 #endif // TBB_VERSION
 

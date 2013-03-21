@@ -1,6 +1,8 @@
 TARGET   = fluidanimate
 OBJS     = pthreads.o parsec_barrier.o
 CXXFLAGS += -pthread
+#Abhi: add debug flag
+CXXFLAGS += -g
 
 all: pthreads cmp
 

@@ -56,13 +56,15 @@ inline int MyBarrier::Wait(int tid) {
   int lock_ret = pthread_spin_lock(&m_lock);
   assert (lock_ret == 0);
   m_local_count[tid] = --m_counter; 
-  int unlock_ret = pthread_spin_unlock(&m_lock);
-  assert (unlock_ret == 0);
   if (m_local_count[tid] == 0) {
     m_counter = m_participants;
     m_global_sense = m_local_sense[tid];
+    int unlock_ret = pthread_spin_unlock(&m_lock);
+    assert (unlock_ret == 0);
     return PTHREAD_BARRIER_SERIAL_THREAD;
   } else {
+    int unlock_ret = pthread_spin_unlock(&m_lock);
+    assert (unlock_ret == 0);
     __parsec_local_end(); // keep the busy loop out of data collection or simulation
     while (m_global_sense != m_local_sense[tid]) {
       asm volatile("rep; nop" ::: "memory");
